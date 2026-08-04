@@ -111,6 +111,30 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   .locpill{display:inline-flex; align-items:center; gap:4px; font-size:11px; font-weight:700; padding:3px 9px; border-radius:20px; border:1px solid var(--line); background:#fff; color:var(--olive-dark)}
   .locpill.unset{color:var(--muted); border-style:dashed}
 
+  /* location-first count */
+  .lochead{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:4px 2px 12px}
+  .lochead .locname{font-size:19px;font-weight:800;line-height:1.1}
+  .lochead .locsub{font-size:12.5px;color:var(--muted);margin-top:2px}
+  .addhere{flex:0 0 auto;background:var(--olive);color:#fff;border-radius:11px;padding:11px 15px;font-weight:700;font-size:14px}
+  .addhere:active{background:var(--olive-dark)}
+  .removebtn{margin-top:11px;width:100%;padding:9px;border-radius:9px;background:#fff;border:1px solid var(--line);color:var(--crimson);font-weight:600;font-size:12.5px}
+  .removebtn:active{background:var(--paper)}
+  /* add sheet */
+  .addsheet{display:flex;flex-direction:column;max-height:88vh}
+  .addhdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+  .addhdr h3{margin:0}
+  .donebtn{background:var(--olive);color:#fff;padding:9px 16px;border-radius:10px;font-weight:700;font-size:14px}
+  .addresults{overflow-y:auto;-webkit-overflow-scrolling:touch;flex:1;min-height:120px}
+  .addrow{display:flex;align-items:center;gap:10px;padding:10px 4px;border-bottom:1px solid var(--line)}
+  .arinfo{flex:1;min-width:0}
+  .ardesc{font-weight:600;font-size:14px;line-height:1.25}
+  .armeta{font-size:11.5px;color:var(--muted);margin-top:2px}
+  .addbtn{flex:0 0 auto;background:var(--gold);color:var(--ink);border-radius:10px;padding:10px 16px;font-weight:800;font-size:14px}
+  .addbtn:active{transform:scale(.96)}
+  .stepper.mini{flex:0 0 auto}
+  .stepper.mini button{width:38px;height:36px;font-size:20px}
+  .stepper.mini .q{min-width:30px;font-size:15px}
+
   /* ---------- List ---------- */
   .list{padding:8px 12px 150px; max-width:640px; margin:0 auto}
   .empty{text-align:center; color:var(--muted); padding:40px 20px; font-size:14px}
@@ -232,22 +256,16 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     </div>
     <div class="totals">
       <div class="totchip"><div class="lab">Total Value</div><div class="val" id="totVal">£0.00</div></div>
-      <div class="totchip"><div class="lab">Checked</div><div class="val" id="totProg">0 / 0</div></div>
+      <div class="totchip"><div class="lab">Lines counted</div><div class="val" id="totProg">0</div></div>
     </div>
-    <div class="progwrap"><div class="progbar" id="progBar"></div></div>
   </div>
   <div class="controls">
     <div class="locbar" id="locbar"></div>
-    <div class="ctrlrow2">
-      <input class="search" id="search" placeholder="Search product or code…" oninput="render()">
-      <select class="groupSel" id="groupSel" onchange="render()"></select>
-    </div>
   </div>
   <div class="list" id="list"></div>
   <div class="bottombar">
-    <button class="btn-add" onclick="openAdd()">+ Add</button>
-    <button class="btn btn-ghost" onclick="jumpNext()">Next ↓</button>
-    <button class="btn btn-primary" onclick="doExport()">Export</button>
+    <button class="btn btn-primary" style="flex:2" onclick="openAdd()">+ Add product</button>
+    <button class="btn btn-ghost" onclick="doExport()">Export</button>
   </div>
 </div>
 
@@ -283,15 +301,24 @@ function loadSaved(code){ try{ return JSON.parse(localStorage.getItem(lsKey(code
 function clearSaved(code){ try{ localStorage.removeItem(lsKey(code)); }catch(e){} }
 
 /* ---------- start screen ---------- */
+function sessionSummary(saved){
+  // tolerant of old (products[]) and new (entries[]) formats
+  if(saved.entries){
+    const n=saved.entries.length;
+    const tot=saved.entries.reduce((s,e)=>s+e.price*(e.unop+e.pct/100),0);
+    return {n, tot};
+  }
+  const prods=(saved.products||[]).filter(p=>p.touched);
+  return {n:prods.length, tot:prods.reduce((s,p)=>s+p.price*(p.unop+p.pct/100),0)};
+}
 function renderStart(){
   const wrap = $("customerList");
   wrap.innerHTML = CUSTOMERS.map(c=>{
     const saved = loadSaved(c.code);
     let progHtml="", btnClass="cgo", btnLabel="Start count", restart="";
     if(saved){
-      const done = saved.products.filter(p=>p.touched).length;
-      const tot  = saved.products.reduce((s,p)=>s + p.price*(p.unop + p.pct/100), 0);
-      progHtml = `<div class="cmeta"><span class="prog">${done}/${saved.products.length} checked</span> · ${money(tot)} · ${new Date(saved.date).toLocaleDateString("en-GB")}</div>`;
+      const {n,tot}=sessionSummary(saved);
+      progHtml = `<div class="cmeta"><span class="prog">${n} line${n===1?"":"s"} counted</span> · ${money(tot)} · ${new Date(saved.date).toLocaleDateString("en-GB")}</div>`;
       btnClass="cgo resume"; btnLabel="Resume";
       restart = `<button class="restart" onclick="event.stopPropagation();restartCustomer('${c.code}')">Start over</button>`;
     } else {
@@ -312,10 +339,13 @@ function renderStart(){
 
 function customerDef(code){ return CUSTOMERS.find(c=>c.code===code); }
 
+let CAT = [];   // runtime catalogue (search source) for the active customer
+
 function openCustomer(code){
   const saved = loadSaved(code);
-  if(saved){ S = saved; }
-  else { S = newSession(code); save(); }
+  if(saved){ S = migrate(saved); }
+  else { S = newSession(code); }
+  save();
   enterCount();
 }
 function restartCustomer(code){
@@ -325,67 +355,43 @@ function restartCustomer(code){
 }
 function newSession(code){
   const def = customerDef(code);
+  const locs = (LOC_DEFAULTS[code]||[]).slice();
   return {
-    code, name: def.name, date: new Date().toISOString(), filter:"ALL", filterLoc:"ALL",
-    locations: (LOC_DEFAULTS[code]||[]).slice(),
-    products: def.products.map(p=>({ id:p.id, desc:p.desc, price:p.price, group:p.group||"", location:"", unop:0, pct:0, touched:false, added:false }))
+    code, name: def.name, date: new Date().toISOString(),
+    locations: locs,
+    activeLoc: locs[0] || "",
+    entries: []            // {id, desc, price, group, loc, unop, pct, added?}
   };
+}
+// convert an old-format saved session (products[]) into the new entries model
+function migrate(s){
+  if(s.entries) return s;
+  const entries=[];
+  (s.products||[]).forEach(p=>{
+    if(p.touched && ((p.unop||0)>0 || (p.pct||0)>0)){
+      entries.push({ id:p.id, desc:p.desc, price:p.price, group:p.group||"",
+        loc:p.location||"", unop:p.unop||0, pct:p.pct||0, added:!!p.added });
+    }
+  });
+  s.entries=entries;
+  if(!s.locations) s.locations=(LOC_DEFAULTS[s.code]||[]).slice();
+  s.activeLoc = s.locations[0] || "";
+  delete s.products; delete s.filter; delete s.filterLoc;
+  return s;
 }
 
 /* ---------- count screen ---------- */
 function enterCount(){
+  CAT = (customerDef(S.code).products||[]).map(p=>({id:p.id,desc:p.desc,price:p.price,group:p.group||""}));
   $("startScreen").classList.add("hidden");
   $("countScreen").classList.remove("hidden");
   $("custName").textContent = S.name;
   $("custMeta").textContent = S.code + " · " + new Date(S.date).toLocaleDateString("en-GB",{day:"numeric",month:"long",year:"numeric"});
-  $("search").value = "";
-  if(!S.filter) S.filter="ALL";
-  if(!S.filterLoc) S.filterLoc="ALL";
   if(!S.locations) S.locations=(LOC_DEFAULTS[S.code]||[]).slice();
-  S.products.forEach(p=>{ if(p.location===undefined) p.location=""; });
+  if(S.activeLoc===undefined) S.activeLoc = S.locations[0]||"";
   window.scrollTo(0,0);
   buildLocBar();
-  buildGroupSel();
   render();
-}
-
-// counts per location for the chip badges
-function locCounts(){
-  const c={UNASSIGNED:0}; S.locations.forEach(l=>c[l]=0);
-  S.products.forEach(p=>{ if(p.location) c[p.location]=(c[p.location]||0)+1; else c.UNASSIGNED++; });
-  return c;
-}
-function buildLocBar(){
-  const wrap=$("locbar"); const c=locCounts();
-  let html=`<button class="lchip ${S.filterLoc==='ALL'?'on':''}" onclick="setLoc('ALL')">All <span class="n">${S.products.length}</span></button>`;
-  S.locations.forEach(l=>{
-    const lj=l.replace(/'/g,"\\'");
-    html+=`<button class="lchip ${S.filterLoc===l?'on':''}" onclick="setLoc('${lj}')">${esc(l)} <span class="n">${c[l]||0}</span></button>`;
-  });
-  if(c.UNASSIGNED>0){
-    html+=`<button class="lchip ${S.filterLoc==='UNASSIGNED'?'on':''}" onclick="setLoc('UNASSIGNED')">Unassigned <span class="n">${c.UNASSIGNED}</span></button>`;
-  }
-  html+=`<button class="lchip add" onclick="addLocation()">+ Location</button>`;
-  wrap.innerHTML=html;
-}
-function setLoc(l){ S.filterLoc=l; buildLocBar(); render(); window.scrollTo({top:0,behavior:"smooth"}); }
-function addLocation(){
-  const name=prompt("New location name (e.g. W4, Mixing Room):","");
-  if(name && name.trim()){
-    const n=name.trim();
-    if(!S.locations.includes(n)) S.locations.push(n);
-    S.filterLoc=n; save(); buildLocBar(); render();
-  }
-}
-function buildGroupSel(){
-  const sel=$("groupSel");
-  const groups={};
-  S.products.forEach(p=>{ const g=p.group||"Other"; groups[g]=(groups[g]||0)+1; });
-  const keys=Object.keys(groups).sort();
-  let html=`<option value="ALL">All groups</option>`;
-  keys.forEach(g=>{ html+=`<option value="${esc(g)}">${esc(g)} (${groups[g]})</option>`; });
-  sel.innerHTML=html;
-  sel.value=S.filter||"ALL";
 }
 function backToStart(){
   save();
@@ -394,176 +400,230 @@ function backToStart(){
   renderStart();
 }
 
-function lineValue(p){ return p.price * (p.unop + p.pct/100); }
+function entryValue(e){ return e.price * (e.unop + e.pct/100); }
+function locEntryCount(loc){ return S.entries.filter(e=>e.loc===loc).length; }
 
-function render(){
-  const q = norm($("search").value);
-  let total=0, done=0;
-  S.products.forEach(p=>{ total+=lineValue(p); if(p.touched) done++; });
-  $("totVal").textContent = money(total);
-  $("totProg").textContent = done + " / " + S.products.length;
-  $("progBar").style.width = (S.products.length? done/S.products.length*100:0) + "%";
-
-  S.filter = $("groupSel").value || "ALL";
-  const rows = S.products.map((p,i)=>({p,i}))
-    .filter(({p})=> S.filter==="ALL" || (p.group||"Other")===S.filter)
-    .filter(({p})=>{
-      if(S.filterLoc==="ALL") return true;
-      if(S.filterLoc==="UNASSIGNED") return !p.location;
-      // a specific location: show items in it, plus still-unassigned items so they can be counted & auto-filed here
-      return p.location===S.filterLoc || !p.location;
-    })
-    .filter(({p})=> !q || norm(p.desc).includes(q) || norm(p.id).includes(q));
-
-  const list = $("list");
-  if(rows.length===0){ list.innerHTML = `<div class="empty">No matching lines.<br><br><button class="btn btn-ghost" style="display:inline-block;padding:10px 16px" onclick="openAdd()">+ Add this product</button></div>`; save(); return; }
-  list.innerHTML = rows.map(({p,i})=>cardHTML(p,i)).join("");
-  save();
+function buildLocBar(){
+  const wrap=$("locbar");
+  let html="";
+  S.locations.forEach(l=>{
+    const lj=l.replace(/'/g,"\\'");
+    html+=`<button class="lchip ${S.activeLoc===l?'on':''}" onclick="setLoc('${lj}')">${esc(l)} <span class="n">${locEntryCount(l)}</span></button>`;
+  });
+  // Unspecified bucket (used when a customer has no locations, or legacy)
+  const unspec=locEntryCount("");
+  if(unspec>0 || S.locations.length===0){
+    html+=`<button class="lchip ${S.activeLoc===''?'on':''}" onclick="setLoc('')">Unspecified <span class="n">${unspec}</span></button>`;
+  }
+  html+=`<button class="lchip ${S.activeLoc==='ALL'?'on':''}" onclick="setLoc('ALL')">All <span class="n">${S.entries.length}</span></button>`;
+  html+=`<button class="lchip add" onclick="addLocation()">+ Location</button>`;
+  wrap.innerHTML=html;
+}
+function setLoc(l){ S.activeLoc=l; buildLocBar(); render(); window.scrollTo({top:0,behavior:"smooth"}); }
+function addLocation(){
+  const name=prompt("New location name (e.g. W4, Mixing Room):","");
+  if(name && name.trim()){
+    const n=name.trim();
+    if(!S.locations.includes(n)) S.locations.push(n);
+    S.activeLoc=n; save(); buildLocBar(); render();
+  }
 }
 
-function cardHTML(p,i){
-  const chips = PCTS.map(pc=>{
-    const on = p.pct===pc ? "on":""; const none = pc===0 ? "none":"";
-    return `<button class="chip ${none} ${on}" onclick="setPct(${i},${pc})">${pc===0?"None":pc+"%"}</button>`;
+function totals(){
+  let tot=0; S.entries.forEach(e=>tot+=entryValue(e));
+  $("totVal").textContent=money(tot);
+  $("totProg").textContent=S.entries.length;
+}
+
+/* ---------- render count list ---------- */
+function render(){
+  totals();
+  const list=$("list");
+  if(S.activeLoc==="ALL"){ list.innerHTML=renderAllView(); return; }
+  const loc=S.activeLoc;
+  const items=S.entries.map((e,i)=>({e,i})).filter(x=>x.e.loc===loc);
+  const locName = loc==="" ? "Unspecified" : loc;
+  const sub = items.length ? `${items.length} line${items.length===1?"":"s"} · ${money(items.reduce((s,x)=>s+entryValue(x.e),0))}` : "nothing counted here yet";
+  let html=`<div class="lochead"><div><div class="locname">${esc(locName)}</div><div class="locsub">${sub}</div></div>
+     <button class="addhere" onclick="openAdd()">+ Add product</button></div>`;
+  if(items.length===0){
+    html+=`<div class="empty">Tap <b>+ Add product</b> to search the product list and record what's in ${esc(locName)}.</div>`;
+  } else {
+    html+=items.map(x=>entryCardHTML(x.e,x.i)).join("");
+  }
+  list.innerHTML=html;
+  save();
+}
+function renderAllView(){
+  if(S.entries.length===0) return `<div class="empty">Nothing counted yet. Pick a location and add products.</div>`;
+  const order=l=>{const i=S.locations.indexOf(l);return i<0?(l?900:999):i;};
+  const locs=[...new Set(S.entries.map(e=>e.loc))].sort((a,b)=>order(a)-order(b));
+  let html="";
+  locs.forEach(loc=>{
+    const items=S.entries.map((e,i)=>({e,i})).filter(x=>x.e.loc===loc);
+    const locName=loc===""?"Unspecified":loc;
+    html+=`<div class="lochead"><div><div class="locname">${esc(locName)}</div><div class="locsub">${items.length} line${items.length===1?"":"s"} · ${money(items.reduce((s,x)=>s+entryValue(x.e),0))}</div></div></div>`;
+    html+=items.map(x=>entryCardHTML(x.e,x.i)).join("");
+  });
+  return html;
+}
+
+function entryCardHTML(e,i){
+  const chips=PCTS.map(pc=>{
+    const on=e.pct===pc?"on":""; const none=pc===0?"none":"";
+    return `<button class="chip ${none} ${on}" onclick="setEntryPct(${i},${pc})">${pc===0?"None":pc+"%"}</button>`;
   }).join("");
-  return `<div class="card ${p.touched?'done':''} ${p.added?'added':''}" id="card${i}">
+  return `<div class="card" id="ecard${i}">
     <div class="hd">
-      <div class="dot"></div>
       <div class="titles">
-        <div class="desc">${esc(p.desc)}</div>
+        <div class="desc">${esc(e.desc)}</div>
         <div class="meta">
-          ${p.added?`<span class="newtag">NEW</span>`:""}
-          ${p.group?`<span class="grptag">${esc(p.group)}</span>`:""}
-          <button class="locpill ${p.location?'':'unset'}" onclick="openLocPicker(${i})">${p.location?esc(p.location):"◎ set location"}</button>
-          ${p.id?`<span>${esc(p.id)}</span>`:""}
-          <span>${money(p.price)} each</span>
+          ${e.added?`<span class="newtag">NEW</span>`:""}
+          ${e.group?`<span class="grptag">${esc(e.group)}</span>`:""}
+          ${e.id?`<span>${esc(e.id)}</span>`:""}
+          <span>${money(e.price)} each</span>
+          ${S.activeLoc==="ALL"&&e.loc?`<span class="grptag">${esc(e.loc)}</span>`:""}
         </div>
       </div>
-      <div class="linev">${money(lineValue(p))}<small>line value</small></div>
+      <div class="linev">${money(entryValue(e))}<small>line value</small></div>
     </div>
     <div class="ctrlrow">
       <span class="steplab">Sealed units</span>
       <div class="stepper">
-        <button onclick="step(${i},-1)">−</button>
-        <span class="q" id="q${i}">${p.unop}</span>
-        <button onclick="step(${i},1)">+</button>
+        <button onclick="stepEntry(${i},-1)">−</button>
+        <span class="q" id="eq${i}">${e.unop}</span>
+        <button onclick="stepEntry(${i},1)">+</button>
       </div>
     </div>
     <div class="opened">
       <div class="steplab" style="margin-bottom:6px">Part-used tin — how much left?</div>
       <div class="chips">${chips}</div>
     </div>
+    <button class="removebtn" onclick="removeEntry(${i})">Remove line</button>
   </div>`;
 }
 
-function autoAssignLoc(p){
-  // when counting inside a specific location view, file unassigned items there
-  if(!p.location && S.filterLoc!=="ALL" && S.filterLoc!=="UNASSIGNED"){
-    p.location=S.filterLoc; return true;
+function refreshEntryCard(i){
+  const e=S.entries[i]; const el=$("ecard"+i);
+  if(el){
+    $("eq"+i).textContent=e.unop;
+    el.querySelector(".linev").innerHTML=money(entryValue(e))+'<small>line value</small>';
+    const chips=el.querySelectorAll(".chip");
+    PCTS.forEach((pc,idx)=>chips[idx].classList.toggle("on", e.pct===pc));
   }
-  return false;
+  totals(); save();
 }
-function step(i,d){ const p=S.products[i]; p.unop=Math.max(0,p.unop+d); p.touched=true; const a=autoAssignLoc(p); refreshCard(i); if(a){ buildLocBar(); toast("Filed under "+p.location); } }
-function setPct(i,pc){ const p=S.products[i]; p.pct=(p.pct===pc&&pc!==0)?0:pc; p.touched=true; const a=autoAssignLoc(p); refreshCard(i); if(a){ buildLocBar(); toast("Filed under "+p.location); } }
+function stepEntry(i,d){ const e=S.entries[i]; e.unop=Math.max(0,e.unop+d); refreshEntryCard(i); }
+function setEntryPct(i,pc){ const e=S.entries[i]; e.pct=(e.pct===pc&&pc!==0)?0:pc; refreshEntryCard(i); }
+function removeEntry(i){
+  const e=S.entries[i];
+  S.entries.splice(i,1);
+  buildLocBar(); render(); toast("Removed "+e.desc);
+}
 
-function openLocPicker(i){
-  const p=S.products[i];
-  const opts = S.locations.map(l=>`<button class="btn btn-ghost" style="flex:1 1 46%;${p.location===l?'border-color:var(--olive);color:var(--olive-dark);font-weight:800':''}" onclick="setProdLoc(${i},'${l.replace(/'/g,"\\'")}')">${esc(l)}</button>`).join("");
+/* ---------- add product (search the catalogue, add to active location) ---------- */
+function openAdd(){
+  if(S.activeLoc==="ALL"){ toast("Pick a location first"); return; }
+  const loc=S.activeLoc, locName=loc===""?"this count":loc;
+  const groups=[...new Set(CAT.map(p=>p.group).filter(Boolean))].sort();
+  const gopts=`<option value="ALL">All groups</option>`+groups.map(g=>`<option value="${esc(g)}">${esc(g)}</option>`).join("");
+  $("modalRoot").innerHTML=`<div class="scrim" onclick="if(event.target===this)closeModal()">
+    <div class="sheet addsheet">
+      <div class="addhdr">
+        <h3>Add to ${esc(locName)}</h3>
+        <button class="donebtn" onclick="closeModal()">Done</button>
+      </div>
+      <div class="ctrlrow2" style="margin-bottom:10px">
+        <input class="search" id="addSearch" placeholder="Search product or code…" autocomplete="off" oninput="renderAddResults()">
+        <select class="groupSel" id="addGroup" onchange="renderAddResults()">${gopts}</select>
+      </div>
+      <div id="addResults" class="addresults"></div>
+      <div style="margin-top:12px"><button class="btn btn-ghost" style="width:100%" onclick="openNewProduct()">+ Product not in the list</button></div>
+    </div></div>`;
+  setTimeout(()=>$("addSearch")&&$("addSearch").focus(),60);
+  renderAddResults();
+}
+function renderAddResults(){
+  const q=norm($("addSearch").value); const g=$("addGroup").value;
+  const loc=S.activeLoc;
+  let rows=CAT.filter(p=> (g==="ALL"||p.group===g) && (!q || norm(p.desc).includes(q) || norm(p.id).includes(q)));
+  const box=$("addResults");
+  if(rows.length===0){ box.innerHTML=`<div class="empty" style="padding:24px">No matches. Use “Product not in the list” below if it's new.</div>`; return; }
+  rows=rows.slice(0,80);
+  box.innerHTML=rows.map(p=>{
+    const ei=S.entries.findIndex(e=>e.loc===loc && e.id===p.id && !e.added);
+    const added=ei>=0;
+    const qty=added?S.entries[ei].unop:0;
+    return `<div class="addrow">
+      <div class="arinfo">
+        <div class="ardesc">${esc(p.desc)}</div>
+        <div class="armeta">${p.group?esc(p.group)+" · ":""}${p.id?esc(p.id)+" · ":""}${money(p.price)}</div>
+      </div>
+      ${added
+        ? `<div class="stepper mini"><button onclick="addStep('${cssId(p.id)}',-1)">−</button><span class="q" id="ar_${cssId(p.id)}">${qty}</span><button onclick="addStep('${cssId(p.id)}',1)">+</button></div>`
+        : `<button class="addbtn" onclick="addToCount('${cssId(p.id)}')">Add</button>`}
+    </div>`;
+  }).join("");
+}
+function cssId(id){ return (id||"").replace(/[^A-Za-z0-9]/g,"_"); }
+function catBySafeId(sid){ return CAT.find(p=>cssId(p.id)===sid); }
+function addToCount(sid){
+  const p=catBySafeId(sid); if(!p) return;
+  S.entries.push({id:p.id,desc:p.desc,price:p.price,group:p.group||"",loc:S.activeLoc,unop:1,pct:0,added:false});
+  buildLocBar(); renderAddResults(); totals(); save();
+}
+function addStep(sid,d){
+  const p=catBySafeId(sid); if(!p) return;
+  const ei=S.entries.findIndex(e=>e.loc===S.activeLoc && e.id===p.id && !e.added);
+  if(ei<0) return;
+  S.entries[ei].unop=Math.max(0,S.entries[ei].unop+d);
+  if(S.entries[ei].unop===0 && S.entries[ei].pct===0){ S.entries.splice(ei,1); }
+  buildLocBar(); renderAddResults(); totals(); save();
+}
+
+/* ---------- add a product that isn't in the list ---------- */
+function openNewProduct(){
+  const loc=S.activeLoc, locName=loc===""?"this count":loc;
   $("modalRoot").innerHTML=`<div class="scrim" onclick="if(event.target===this)closeModal()">
     <div class="sheet">
-      <h3>Location</h3>
-      <p>Where is <b>${esc(p.desc)}</b> kept?</p>
+      <h3>New product</h3>
+      <p>Add to ${esc(locName)}. Flagged <b>NEW</b> in the export.</p>
+      <div class="fld"><label>Description <span class="req">*</span></label><input id="npDesc" placeholder="e.g. 40-440 2K Clearcoat 5L" autocomplete="off"></div>
+      <div class="fld"><label>Cost price (£ each) <span class="req">*</span></label><input id="npPrice" type="text" inputmode="decimal" placeholder="e.g. 42.50" autocomplete="off"></div>
+      <div class="fld"><label>Product code (optional)</label><input id="npCode" placeholder="e.g. BAS50794576" autocomplete="off"></div>
+      <div class="fld"><label>Group (optional)</label><input id="npGroup" list="npGroupOpts" placeholder="e.g. CLEARCOAT" autocomplete="off"><datalist id="npGroupOpts">${[...new Set(CAT.map(p=>p.group).filter(Boolean))].sort().map(g=>`<option value="${esc(g)}">`).join("")}</datalist></div>
+      <div class="err hidden" id="npErr"></div>
       <div class="act">
-        ${opts}
-        <button class="btn btn-ghost" style="flex:1 1 46%" onclick="newLocFor(${i})">+ New location</button>
-        <button class="btn btn-ghost" style="flex:1 1 46%;color:var(--muted)" onclick="setProdLoc(${i},'')">Clear</button>
-        <button class="btn btn-ghost" style="flex:1 1 100%" onclick="closeModal()">Close</button>
+        <button class="btn btn-ghost" onclick="openAdd()">Back</button>
+        <button class="btn btn-primary" onclick="submitNewProduct()">Add to count</button>
       </div>
     </div></div>`;
+  setTimeout(()=>$("npDesc")&&$("npDesc").focus(),60);
 }
-function setProdLoc(i,l){ S.products[i].location=l; closeModal(); buildLocBar(); render(); }
-function newLocFor(i){
-  const name=prompt("New location name:","");
-  if(name && name.trim()){ const n=name.trim(); if(!S.locations.includes(n)) S.locations.push(n); S.products[i].location=n; }
-  closeModal(); buildLocBar(); render();
-}
-
-function refreshCard(i){
-  const p=S.products[i]; const el=$("card"+i);
-  if(el){
-    el.classList.toggle("done", p.touched);
-    $("q"+i).textContent=p.unop;
-    el.querySelector(".linev").innerHTML = money(lineValue(p))+'<small>line value</small>';
-    const chips=el.querySelectorAll(".chip");
-    PCTS.forEach((pc,idx)=> chips[idx].classList.toggle("on", p.pct===pc));
-  }
-  let total=0,done=0;
-  S.products.forEach(x=>{ total+=lineValue(x); if(x.touched) done++; });
-  $("totVal").textContent=money(total);
-  $("totProg").textContent=done+" / "+S.products.length;
-  $("progBar").style.width=(done/S.products.length*100)+"%";
-  save();
-}
-
-function jumpNext(){
-  const cards=[...document.querySelectorAll(".card:not(.done)")];
-  if(cards.length){ cards[0].scrollIntoView({behavior:"smooth",block:"center"}); }
-  else toast("All lines checked ✓");
-}
-
-/* ---------- add product ---------- */
-function openAdd(){
-  const root=$("modalRoot");
-  root.innerHTML=`<div class="scrim" onclick="if(event.target===this)closeModal()">
-    <div class="sheet">
-      <h3>Add a product</h3>
-      <p>For something the customer stocks that isn't on the list. It's added to this count and flagged <b>NEW</b> in the export.</p>
-      <div class="fld"><label>Description <span class="req">*</span></label><input id="addDesc" placeholder="e.g. 40-440 2K Clearcoat 5L" autocomplete="off"></div>
-      <div class="fld"><label>Cost price (£ each) <span class="req">*</span></label><input id="addPrice" type="text" inputmode="decimal" placeholder="e.g. 42.50" autocomplete="off"></div>
-      <div class="fld"><label>Product code (optional)</label><input id="addCode" placeholder="e.g. BAS50794576" autocomplete="off"></div>
-      <div class="fld"><label>Group (optional)</label><input id="addGroup" list="groupOptions" placeholder="e.g. CLEARCOAT" autocomplete="off"><datalist id="groupOptions">${groupOptionsHTML()}</datalist></div>
-      <div class="err hidden" id="addErr"></div>
-      <div class="act">
-        <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
-        <button class="btn btn-primary" onclick="submitAdd()">Add to count</button>
-      </div>
-    </div></div>`;
-  setTimeout(()=>$("addDesc").focus(),50);
-}
-function closeModal(){ $("modalRoot").innerHTML=""; }
-function groupOptionsHTML(){
-  const gs=[...new Set(S.products.map(p=>p.group).filter(Boolean))].sort();
-  return gs.map(g=>`<option value="${esc(g)}">`).join("");
-}
-function submitAdd(){
-  const desc=($("addDesc").value||"").trim();
-  const priceRaw=($("addPrice").value||"").trim().replace(/[£,\s]/g,"");
-  const code=($("addCode").value||"").trim();
-  const group=($("addGroup").value||"").trim();
+function submitNewProduct(){
+  const desc=($("npDesc").value||"").trim();
+  const priceRaw=($("npPrice").value||"").trim().replace(/[£,\s]/g,"");
+  const code=($("npCode").value||"").trim();
+  const group=($("npGroup").value||"").trim();
   const price=parseFloat(priceRaw);
-  if(!desc){ return showAddErr("Please enter a description."); }
-  if(!priceRaw || isNaN(price) || price<0){ return showAddErr("Please enter a valid cost price."); }
-  const loc = (S.filterLoc!=="ALL" && S.filterLoc!=="UNASSIGNED") ? S.filterLoc : "";
-  S.products.unshift({ id:code, desc, price:Math.round(price*10000)/10000, group, location:loc, unop:0, pct:0, touched:true, added:true });
-  S.filter="ALL"; $("groupSel").value="ALL";
-  closeModal(); $("search").value=""; buildLocBar(); buildGroupSel(); render();
-  window.scrollTo({top:0,behavior:"smooth"});
-  toast("Added: "+desc + (loc?" ("+loc+")":""));
+  if(!desc){ return npErr("Please enter a description."); }
+  if(!priceRaw||isNaN(price)||price<0){ return npErr("Please enter a valid cost price."); }
+  S.entries.push({id:code,desc,price:Math.round(price*10000)/10000,group,loc:S.activeLoc,unop:1,pct:0,added:true});
+  closeModal(); buildLocBar(); render(); window.scrollTo({top:0,behavior:"smooth"});
+  toast("Added: "+desc);
 }
-function showAddErr(m){ const e=$("addErr"); e.textContent=m; e.classList.remove("hidden"); }
+function npErr(m){ const e=$("npErr"); e.textContent=m; e.classList.remove("hidden"); }
+function closeModal(){ $("modalRoot").innerHTML=""; render(); }
 
 /* ---------- menu ---------- */
 function openMenu(){
-  const remaining=S.products.filter(p=>!p.touched).length;
-  const root=$("modalRoot");
-  root.innerHTML=`<div class="scrim" onclick="if(event.target===this)closeModal()">
+  const nLoc=new Set(S.entries.map(e=>e.loc)).size;
+  $("modalRoot").innerHTML=`<div class="scrim" onclick="if(event.target===this)closeModal()">
     <div class="sheet">
       <h3>${esc(S.name)}</h3>
-      <p>${S.products.length} lines · ${S.products.length-remaining} checked · ${remaining} not yet touched.</p>
+      <p>${S.entries.length} line${S.entries.length===1?"":"s"} counted across ${nLoc} location${nLoc===1?"":"s"} · ${money(S.entries.reduce((s,e)=>s+entryValue(e),0))}</p>
       <div class="act">
         <button class="btn btn-primary" style="flex:1 1 100%" onclick="closeModal();doExport()">Export to Excel</button>
-        <button class="btn btn-ghost" style="flex:1 1 100%" onclick="closeModal();openAdd()">+ Add a product</button>
-        <button class="btn btn-ghost" style="flex:1 1 100%" onclick="markRestZero()">Finish: mark remaining ${remaining} as £0 &amp; checked</button>
         <button class="btn btn-ghost" style="flex:1 1 48%" onclick="closeModal();backToStart()">Switch customer</button>
         <button class="btn btn-ghost" style="flex:1 1 48%;color:var(--crimson)" onclick="startOver()">Start over</button>
         <button class="btn btn-ghost" style="flex:1 1 100%" onclick="lockApp()">Lock app (sign out)</button>
@@ -571,19 +631,17 @@ function openMenu(){
       </div>
     </div></div>`;
 }
-function markRestZero(){
-  S.products.forEach(p=>{ if(!p.touched){ p.unop=0; p.pct=0; p.touched=true; } });
-  closeModal(); render(); toast("Remaining lines marked £0 & checked");
-}
 function startOver(){
-  if(confirm("Start this count over? This clears all counted quantities for "+S.name+".")){
-    clearSaved(S.code); S=newSession(S.code); save(); closeModal(); render(); toast("Count reset");
+  if(confirm("Start this count over? This clears everything counted for "+S.name+".")){
+    clearSaved(S.code); S=newSession(S.code); save(); closeModal(); buildLocBar(); render(); toast("Count reset");
   }
 }
 
 /* ---------- export ---------- */
 async function doExport(){
   if(typeof ExcelJS==="undefined"){ alert("Excel engine not loaded. Reconnect to the internet once and reopen the app."); return; }
+  const rows = S.entries.filter(e=> e.unop>0 || e.pct>0);   // only lines with real stock
+  if(rows.length===0){ toast("Nothing counted to export yet"); return; }
   toast("Building Excel…");
   const wb=new ExcelJS.Workbook(); wb.creator="IPS Stock Count";
   const ws=wb.addWorksheet("Stock Holding",{views:[{state:"frozen",ySplit:3}]});
@@ -614,33 +672,29 @@ async function doExport(){
 
   let firstData=4, row=firstData;
   const locOrder = l => { const i=S.locations.indexOf(l); return i<0 ? (l?900:999) : i; };
-  const isTinter = p => (p.group||"").toUpperCase()==="TINTER";
-  const ordered = S.products.map((p,idx)=>({p,idx}))
-    .sort((a,b)=>{
-      const at=isTinter(a.p), bt=isTinter(b.p);
-      if(at!==bt) return at?1:-1;                                   // keep all tinters together, as a block at the end
-      if(at) return a.p.desc.localeCompare(b.p.desc, undefined, {numeric:true}) || a.idx-b.idx; // within tinters: by tinter code
-      return locOrder(a.p.location)-locOrder(b.p.location)          // everything else: location, then group
-          || (a.p.group||"").localeCompare(b.p.group||"")
-          || a.idx-b.idx;
-    })
-    .map(x=>x.p);
-  ordered.forEach(p=>{
+  const isTinter = e => (e.group||"").toUpperCase()==="TINTER";
+  const ordered = rows.slice().sort((a,b)=>{
+    const at=isTinter(a), bt=isTinter(b);
+    if(at!==bt) return at?1:-1;
+    if(at) return a.desc.localeCompare(b.desc, undefined, {numeric:true});
+    return locOrder(a.loc)-locOrder(b.loc) || (a.group||"").localeCompare(b.group||"") || a.desc.localeCompare(b.desc);
+  });
+  ordered.forEach(e=>{
     const r=ws.getRow(row); let c=1;
-    r.getCell(c++).value=p.id;
-    r.getCell(c++).value=(p.added?"[NEW] ":"")+p.desc;
-    r.getCell(c++).value=p.group||"";
-    r.getCell(c++).value=p.location||"";
-    const priceCol=c;    r.getCell(c++).value=p.price;
-    const qtyCol=c;      r.getCell(c++).value=p.unop;
+    r.getCell(c++).value=e.id;
+    r.getCell(c++).value=(e.added?"[NEW] ":"")+e.desc;
+    r.getCell(c++).value=e.group||"";
+    r.getCell(c++).value=e.loc||"";
+    const priceCol=c;    r.getCell(c++).value=e.price;
+    const qtyCol=c;      r.getCell(c++).value=e.unop;
     const unopCostCol=c; r.getCell(c++).value={formula:`${col(priceCol)}${row}*${col(qtyCol)}${row}`};
-    const pctCol=c;      r.getCell(c++).value=p.pct/100;
+    const pctCol=c;      r.getCell(c++).value=e.pct/100;
     const opCostCol=c;   r.getCell(c++).value={formula:`${col(priceCol)}${row}*${col(pctCol)}${row}`};
                          r.getCell(c++).value={formula:`${col(unopCostCol)}${row}+${col(opCostCol)}${row}`};
     [priceCol,unopCostCol,opCostCol,c-1].forEach(cc=> r.getCell(cc).numFmt='£#,##0.00;[Red]-£#,##0.00;"-"');
     r.getCell(pctCol).numFmt='0%';
     r.getCell(qtyCol).alignment={horizontal:"center"};
-    const fill = p.added ? GOLDL : ((row-firstData)%2===1 ? "FFF6F7F1" : null);
+    const fill = e.added ? GOLDL : ((row-firstData)%2===1 ? "FFF6F7F1" : null);
     if(fill){ for(let k=1;k<=cols.length;k++) r.getCell(k).fill={type:"pattern",pattern:"solid",fgColor:{argb:fill}}; }
     row++;
   });
